@@ -197,11 +197,12 @@ export class LiveService {
               }
             }
 
-            const base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
+            const parts = message.serverContent?.modelTurn?.parts;
+            const base64Audio = parts?.[0]?.inlineData?.data;
             if (base64Audio && this.outputAudioContext) {
               try {
                 this.nextStartTime = Math.max(this.nextStartTime, this.outputAudioContext.currentTime);
-                const audioBuffer = await decodeAudioData(decode(base64Audio), this.outputAudioContext, 24000, 1);
+                const audioBuffer = await decodeAudioData(decode(base64Audio), this.outputAudioContext, 16000, 1);
                 const source = this.outputAudioContext.createBufferSource();
                 source.buffer = audioBuffer;
                 source.connect(outputNode);
