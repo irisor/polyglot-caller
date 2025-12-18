@@ -126,10 +126,11 @@ export class LiveService {
             Scenario: ${config.context.systemPrompt}
             
             CRITICAL INSTRUCTIONS:
-            1. You are the receiver of the call. Answer immediately.
-            2. Your FIRST words must be a professional greeting in ${config.language.name} appropriate for the scenario.
-            3. Do not mention that you are an AI or a simulation unless asked.
-            4. Keep responses conversational and brief.
+            1. You are the receiver of the call. The phone is ringing right now. 
+            2. Answer the phone immediately with a professional greeting in ${config.language.name}. 
+            3. DO NOT wait for the user to speak first. Start the conversation as soon as the session begins.
+            4. Do not mention that you are an AI.
+            5. Keep responses conversational and brief.
           `,
         },
         callbacks: {
@@ -165,11 +166,7 @@ export class LiveService {
               this.currentOutputTranscription += message.serverContent.outputTranscription.text;
             }
             if (message.serverContent?.inputTranscription?.text) {
-              // Only record user transcript if it's NOT the hidden initial trigger
-              const text = message.serverContent.inputTranscription.text;
-              if (!text.includes("[INITIAL_TRIGGER]")) {
-                this.currentInputTranscription += text;
-              }
+              this.currentInputTranscription += message.serverContent.inputTranscription.text;
             }
 
             if (message.serverContent?.turnComplete) {
@@ -216,28 +213,26 @@ export class LiveService {
             }
           },
           onclose: () => {
+            const wasConnected = this.isConnected;
             this.stopCall();
-            this.onDisconnect();
+            if (wasConnected) {
+              this.onDisconnect();
+            }
           },
           onerror: (err) => {
-            this.onError(new Error("Connection lost."));
+            console.error("Live API Error:", err);
+            this.onError(new Error("Call connection interrupted. Please check your API key and network."));
             this.stopCall();
           }
         }
       });
 
       this.activeSession = await sessionPromise;
-      
-      // Hidden trigger to make the bot speak first without polluting visible transcript
-      await this.activeSession.sendRealtimeInput({
-        content: [{
-          role: "user",
-          parts: [{ text: "(Phone rings) [INITIAL_TRIGGER]: Please answer the call now with your opening greeting." }]
-        }]
-      });
+      // No extra text-based trigger needed; instruction says to speak first.
 
     } catch (error: any) {
-      this.onError(error instanceof Error ? error : new Error("Failed to connect."));
+      console.error("Start Call Exception:", error);
+      this.onError(error instanceof Error ? error : new Error("Failed to connect to the simulation."));
       await this.stopCall();
     }
   }

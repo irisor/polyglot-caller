@@ -82,7 +82,12 @@ const App: React.FC = () => {
                   <AlertCircle className="w-8 h-8 text-red-500" />
               </div>
               <h2 className="text-xl font-bold mb-2">Connection Failed</h2>
-              <p className="text-slate-400 mb-6">{error || 'Unknown error occurred'}</p>
+              <div className="bg-slate-800 p-4 rounded-lg mb-6 max-w-sm">
+                <p className="text-red-400 text-sm font-mono break-words">{error || 'Unknown error occurred'}</p>
+                <p className="text-slate-500 text-[10px] mt-2 text-left">
+                  Tip: Ensure the "Generative Language API" is enabled in your Google Cloud Project and your API Key has permission to access it.
+                </p>
+              </div>
               <button 
                 onClick={reset}
                 className="bg-slate-700 hover:bg-slate-600 px-6 py-3 rounded-xl font-medium transition-colors"
@@ -109,12 +114,12 @@ const App: React.FC = () => {
              </button>
              {/* Show transcript summary if available */}
              {transcripts.length > 0 && (
-                <div className="mt-8 w-full max-w-md bg-slate-800 rounded-xl p-4 text-left max-h-60 overflow-y-auto">
-                    <h3 className="text-sm font-bold text-slate-400 uppercase mb-2">Conversation Log</h3>
-                    <div className="space-y-2 text-sm">
+                <div className="mt-8 w-full max-w-md bg-slate-800 rounded-xl p-4 text-left max-h-60 overflow-y-auto border border-slate-700">
+                    <h3 className="text-sm font-bold text-slate-400 uppercase mb-2 border-b border-slate-700 pb-1">Conversation Log</h3>
+                    <div className="space-y-2 text-sm mt-2">
                         {transcripts.map((t) => (
-                            <div key={t.id} className={t.sender === 'user' ? 'text-blue-300' : 'text-white'}>
-                                <span className="opacity-50 text-xs mr-2">{t.sender === 'user' ? 'You' : 'Bot'}:</span>
+                            <div key={t.id} className={t.sender === 'user' ? 'text-blue-300' : 'text-slate-200'}>
+                                <span className="opacity-50 text-[10px] uppercase font-bold mr-2">{t.sender === 'user' ? 'You' : 'Bot'}:</span>
                                 {t.text}
                             </div>
                         ))}
