@@ -66,7 +66,7 @@ export class LiveService {
   private sourceNode: MediaStreamAudioSourceNode | null = null;
   private activeSession: any = null;
   private isConnected: boolean = false;
-  
+
   // Transcription State
   private currentInputTranscription: string = '';
   private currentOutputTranscription: string = '';
@@ -78,12 +78,14 @@ export class LiveService {
   private onTranscript: (item: TranscriptItem) => void;
 
   constructor(
-    onDisconnect: () => void, 
-    onError: (err: Error) => void, 
+    onDisconnect: () => void,
+    onError: (err: Error) => void,
     onVolume: (vol: number) => void,
     onTranscript: (item: TranscriptItem) => void
   ) {
-    this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const apiKey = process.env.API_KEY;
+    console.log("Live API: Initializing with key...", apiKey ? `${apiKey.substring(0, 5)}...` : "MISSING");
+    this.ai = new GoogleGenAI({ apiKey });
     this.onDisconnect = onDisconnect;
     this.onError = onError;
     this.onVolume = onVolume;
@@ -91,16 +93,20 @@ export class LiveService {
   }
 
   async startCall(config: CallConfig) {
+    if (!process.env.API_KEY) {
+      this.onError(new Error("API Key is missing. Please add it to your .env file."));
+      return;
+    }
     await this.stopCall();
 
     try {
       this.isConnected = true;
       this.currentInputTranscription = '';
       this.currentOutputTranscription = '';
-      
+
       this.inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-      this.outputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-      
+      this.outputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+
       await Promise.all([
         this.inputAudioContext.state === 'suspended' ? this.inputAudioContext.resume() : Promise.resolve(),
         this.outputAudioContext.state === 'suspended' ? this.outputAudioContext.resume() : Promise.resolve()
@@ -112,47 +118,48 @@ export class LiveService {
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
       const sessionPromise = this.ai.live.connect({
-        model: 'gemini-2.5-flash-native-audio-preview-09-2025',
+        model: 'gemini-2.0-flash-exp',
         config: {
-          responseModalities: [Modality.AUDIO],
+          generationConfig: {
+            responseModalities: [Modality.AUDIO],
+            speechConfig: {
+              voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } },
+            },
+          },
           inputAudioTranscription: {},
           outputAudioTranscription: {},
-          speechConfig: {
-            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } },
-          },
           systemInstruction: `
             You are an actor in a phone call simulation.
             Language: ${config.language.name}.
             Scenario: ${config.context.systemPrompt}
-            
-            CRITICAL INSTRUCTIONS:
-            1. You are the receiver of the call. The phone is ringing right now. 
-            2. Answer the phone immediately with a professional greeting in ${config.language.name}. 
-            3. DO NOT wait for the user to speak first. Start the conversation as soon as the session begins.
-            4. Do not mention that you are an AI.
-            5. Keep responses conversational and brief.
+
+            CRITICAL: Answer the phone immediately with a greeting in ${config.language.name}.
+            Do not wait for the user. Do not mention AI. Keep it brief.
           `,
         },
         callbacks: {
           onopen: () => {
+            console.log("Live API: Connection opened successfully");
             if (!this.inputAudioContext || !this.stream) return;
 
             this.sourceNode = this.inputAudioContext.createMediaStreamSource(this.stream);
             this.processor = this.inputAudioContext.createScriptProcessor(4096, 1, 1);
-            
+
             this.processor.onaudioprocess = (e) => {
               if (!this.isConnected) return;
               const inputData = e.inputBuffer.getChannelData(0);
-              
+
               // Volume meter
               let sum = 0;
-              for(let i=0; i<inputData.length; i++) sum += inputData[i] * inputData[i];
+              for (let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
               this.onVolume(Math.sqrt(sum / inputData.length));
 
               const pcmBlob = createBlob(inputData);
               sessionPromise.then((session) => {
                 session.sendRealtimeInput({ media: pcmBlob });
-              }).catch(() => {});
+              }).catch((err) => {
+                console.error("Failed to send audio input:", err);
+              });
             };
 
             const muteNode = this.inputAudioContext.createGain();
@@ -202,26 +209,32 @@ export class LiveService {
                 source.start(this.nextStartTime);
                 this.nextStartTime += audioBuffer.duration;
                 this.sources.add(source);
-              } catch (e) {}
+              } catch (e) {
+                console.error("Failed to decode/play model audio:", e);
+              }
             }
 
             if (message.serverContent?.interrupted) {
-              this.sources.forEach(s => { try { s.stop(); } catch(e) {} });
+              console.log("Live API: Model interrupted");
+              this.sources.forEach(s => { try { s.stop(); } catch (e) { } });
               this.sources.clear();
               this.nextStartTime = 0;
-              this.currentOutputTranscription = ''; 
+              this.currentOutputTranscription = '';
             }
           },
-          onclose: () => {
+          onclose: (event: any) => {
+            console.log(`Live API: Connection closed. Code: ${event.code}, Reason: ${event.reason}`, event);
             const wasConnected = this.isConnected;
             this.stopCall();
-            if (wasConnected) {
+            if (event.code !== 1000 && event.code !== 1001) {
+              this.onError(new Error(`Connection failed (Code ${event.code}): ${event.reason || 'The session was closed/rejected by the server.'}`));
+            } else if (wasConnected) {
               this.onDisconnect();
             }
           },
-          onerror: (err) => {
+          onerror: (err: any) => {
             console.error("Live API Error:", err);
-            this.onError(new Error("Call connection interrupted. Please check your API key and network."));
+            this.onError(new Error(`Simulation error: ${err.message || 'The connection was reset. Ensure your API key has "Generative Language API" enabled.'}`));
             this.stopCall();
           }
         }
@@ -240,7 +253,7 @@ export class LiveService {
   async stopCall() {
     this.isConnected = false;
     if (this.activeSession) {
-      try { await this.activeSession.close(); } catch (e) {}
+      try { await this.activeSession.close(); } catch (e) { }
       this.activeSession = null;
     }
     if (this.processor) {
@@ -257,13 +270,13 @@ export class LiveService {
       this.stream = null;
     }
     if (this.inputAudioContext) {
-      try { await this.inputAudioContext.close(); } catch (e) {}
+      try { await this.inputAudioContext.close(); } catch (e) { }
       this.inputAudioContext = null;
     }
-    this.sources.forEach(s => { try { s.stop(); } catch(e) {} });
+    this.sources.forEach(s => { try { s.stop(); } catch (e) { } });
     this.sources.clear();
     if (this.outputAudioContext) {
-      try { await this.outputAudioContext.close(); } catch (e) {}
+      try { await this.outputAudioContext.close(); } catch (e) { }
       this.outputAudioContext = null;
     }
     this.nextStartTime = 0;
